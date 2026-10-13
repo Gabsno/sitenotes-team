@@ -24,7 +24,8 @@ textarea{min-height:88px;resize:vertical}input:focus,select:focus,textarea:focus
 .btn.pri{background:var(--orange);border-color:var(--orange);color:#fff}.btn.sm{min-height:36px;padding:6px 10px;font-size:13px}.btn.ghost{border-style:dashed;width:100%;color:var(--navy3)}
 .btn:disabled{opacity:.5}
 .yn{display:flex;gap:8px;margin-top:4px}.yn button{flex:1;font:inherit;font-weight:600;min-height:44px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:var(--navy3);cursor:pointer}
-.yn button.on.y{background:#dcfce7;border-color:#86efac;color:#166534}.yn button.on.n{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+.yn button.on.y{background:#dcfce7;border-color:#86efac;color:#166534}.yn button.on.n{background:#fee2e2;border-color:#fca5a5;color:#991b1b}.yn button.on.m{background:#e2e8f0;border-color:#94a3b8;color:#334155}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{font:inherit;font-size:13px;border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:8px 12px;color:var(--navy3);cursor:pointer;min-height:38px}.chip.on{background:#fff7ed;border-color:var(--orange);color:var(--orange-d);font-weight:600}
 .q{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}.q:first-of-type{margin-top:4px;padding-top:0;border-top:0}.q>b{display:block;font-size:14px}
 .issue{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px;background:#f8fafc;position:relative}.issue .x{position:absolute;top:6px;right:6px;border:0;background:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:4px 8px}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.t{position:relative;width:84px}.t img{width:84px;height:84px;object-fit:cover;border-radius:8px;display:block;border:1px solid var(--line)}
@@ -45,7 +46,7 @@ textarea{min-height:88px;resize:vertical}input:focus,select:focus,textarea:focus
 <input type="file" id="cam" accept="image/*" capture="environment" hidden><input type="file" id="gal" accept="image/*" multiple hidden>
 <script>
 'use strict';
-const RELAY = 'https://sitenotes-relay.gabsno.workers.dev', BOSS = 'Gabriel';
+const RELAY = 'https://sitenotes-relay.gabsno.workers.dev';
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ls = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -53,27 +54,34 @@ const lines = s => String(s || '').split('\n').map(x => x.replace(/^[\s\-•*⁃
 const WEATHER = ['Sunny / dry', 'Cloudy', 'Light rain', 'Heavy rain — work stopped', 'Very hot'];
 const blank = () => ({ projectId: ls('lastProject', ''), projectName: '', date: today(), arrive: '', leave: '', weather: WEATHER[0], weatherNote: '',
   crew: ls('lastCrew', null) || [''], done: '', outstanding: '', materials: [{ item: '', qty: '', unit: '' }],
-  safety: { ppe: '', ppeNote: '', toolbox: '', toolboxTopic: '', incident: '', incidentNote: '', hazards: '' },
-  issues: [], deliveries: '', notes: '' });
+  safety: blankSafety(), issues: [], deliveries: '', notes: '' });
+// Safety checks. 'bad' is the answer that needs attention; text fields are asked only when relevant.
+const HIRISK = ['Work at height', 'Hot work (welding, brazing, cutting)', 'Electrical / live work', 'Confined space', 'Excavation / trench', 'Lifting / heavy loads', 'Chasing / core drilling'];
+const INCIDENT_TYPES = ['Near miss — no one hurt', 'Minor injury — first aid only', 'Injury — sent to clinic / hospital', 'Damage to property or equipment'];
+const YN = [['yes', 'Yes', 'y'], ['no', 'No', 'n']], YNA = [...YN, ['na', 'N/A', 'm']];
+function blankSafety() { return { ppe: '', ppeNote: '', toolbox: '', toolboxTopic: '', hiRisk: [], permits: '', permitNote: '', access: '', tools: '', fire: '', firstAidKit: '', incident: '', incidentType: '', incidentNote: '', hazards: '', housekeeping: '' }; }
 const code = new URLSearchParams(location.search).get('c') || ls('code', '');
 let me = ls('me', null), photos = [], draft = ls('draft2', null) || blank();
+draft.safety = { ...blankSafety(), ...draft.safety }; // drafts saved before the safety section grew
 const main = $('#main');
 
-if (!code) { main.innerHTML = `<div class="card center"><h2>You need your personal link</h2><p class="muted">Ask ${BOSS} for your report link and open it from WhatsApp. It remembers you after that.</p></div>`; $('#who').textContent = 'No link'; }
+if (!code) { main.innerHTML = `<div class="card center"><h2>You need your personal link</h2><p class="muted">Ask your supervisor for your report link and open it from WhatsApp. It remembers you after that.</p></div>`; $('#who').textContent = 'No link'; }
 else { lsSet('code', code); start(); }
 
 async function start() {
   try {
     const r = await fetch(`${RELAY}/me?code=${encodeURIComponent(code)}`, { signal: AbortSignal.timeout(12000) });
-    if (r.status === 403) { localStorage.removeItem('code'); main.innerHTML = `<div class="card center"><h2>This link is no longer valid</h2><p class="muted">Ask ${BOSS} for a new one.</p></div>`; $('#who').textContent = ''; return; }
+    if (r.status === 403) { localStorage.removeItem('code'); main.innerHTML = `<div class="card center"><h2>This link is no longer valid</h2><p class="muted">Ask your supervisor for a new one.</p></div>`; $('#who').textContent = ''; return; }
     if (r.ok) { me = await r.json(); lsSet('me', me); }
   } catch { /* offline: use what we remembered */ }
   if (!me) { main.innerHTML = '<div class="card center"><h2>No connection</h2><p class="muted">Turn on data once so the page can check your link, then try again.</p><button class="btn pri" onclick="location.reload()">Try again</button></div>'; return; }
-  $('#who').textContent = `${me.name} · goes straight to ${BOSS}`;
+  $('#who').textContent = `${me.name} · daily report`;
   draw();
 }
-// two buttons: [value, label, 'y' = good answer (green) | 'n' = bad answer (red)]
-const yn = (k, opts = [['yes', 'Yes', 'y'], ['no', 'No', 'n']]) => `<div class="yn" data-yn="${k}">${opts.map(([v, l, c]) => `<button type="button" class="${c} ${draft.safety[k] === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
+// answer buttons: [value, label, 'y' = good (green) | 'n' = needs attention (red) | 'm' = not applicable (grey)]
+const safetyQs = () => ['ppe', 'toolbox', ...(draft.safety.hiRisk.length ? ['permits'] : []), 'access', 'tools', 'fire', 'firstAidKit', 'incident', 'housekeeping'];
+const safetyDone = () => { const q = safetyQs(); return `${q.filter(k => draft.safety[k]).length}/${q.length}`; };
+const yn = (k, opts = YN) => `<div class="yn" data-yn="${k}">${opts.map(([v, l, c]) => `<button type="button" class="${c} ${draft.safety[k] === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
 function draw() {
   const d = draft, ps = me.projects || [], s = d.safety;
   main.innerHTML = `
@@ -95,27 +103,39 @@ function draw() {
   <section class="card"><h2>Materials needed</h2><div id="mats">${d.materials.map((m, i) => `<div class="mat" data-m="${i}"><i>${i + 1}.</i><input placeholder="Item, e.g. 10 mm nut" value="${esc(m.item)}" data-k="item"><input placeholder="Qty" inputmode="decimal" value="${esc(m.qty)}" data-k="qty"><input placeholder="Unit" value="${esc(m.unit)}" data-k="unit" list="units"><button class="x" data-a="delmat" data-i="${i}" aria-label="Remove">×</button></div>`).join('')}</div>
     <datalist id="units"><option value="pcs"><option value="boxes"><option value="m"><option value="lengths"><option value="bags"><option value="rolls"><option value="L"><option value="kg"><option value="sets"></datalist>
     <button class="btn ghost" data-a="addmat" style="margin-top:10px">+ Add material</button></section>
-  <section class="card"><h2 class="safe">⛑ Safety</h2>
-    <div class="q"><b>Was PPE worn by everyone?</b><span class="hint">Helmet, boots, vest, gloves, eye protection at height / cutting</span>${yn('ppe')}
-      ${s.ppe === 'no' ? `<input id="ppeNote" placeholder="Who / what was missing?" value="${esc(s.ppeNote)}" style="margin-top:6px">` : ''}</div>
-    <div class="q"><b>Toolbox talk held this morning?</b>${yn('toolbox')}
+  <section class="card"><h2 class="safe">⛑ Safety <span class="n" style="background:var(--green)" id="safen">${safetyDone()}</span></h2>
+    <div class="q"><b>1. PPE worn by everyone?</b><span class="hint">Helmet, safety boots, reflective vest, gloves; goggles and ear protection for cutting and drilling</span>${yn('ppe')}
+      ${s.ppe === 'no' ? `<input id="ppeNote" placeholder="Who, and what was missing?" value="${esc(s.ppeNote)}" style="margin-top:6px">` : ''}</div>
+    <div class="q"><b>2. Toolbox talk held this morning?</b>${yn('toolbox')}
       ${s.toolbox === 'yes' ? `<input id="toolboxTopic" placeholder="Topic, e.g. working at height, using the grinder" value="${esc(s.toolboxTopic)}" style="margin-top:6px">` : ''}</div>
-    <div class="q"><b>Any injury, accident or near miss?</b>${yn('incident', [['no', 'None', 'y'], ['yes', 'Yes', 'n']])}
-      ${s.incident === 'yes' ? `<textarea id="incidentNote" placeholder="What happened, who, first aid given, what was done after" style="margin-top:6px;min-height:72px">${esc(s.incidentNote)}</textarea>` : ''}</div>
-    <div class="q"><b>Unsafe conditions seen</b><input id="hazards" placeholder="e.g. open floor edge, loose scaffold board (leave empty if none)" value="${esc(s.hazards)}" style="margin-top:6px"></div>
+    <div class="q"><b>3. High-risk work done today</b><span class="hint">Tap all that apply — leave empty if none</span>
+      <div class="chips">${HIRISK.map(h => `<button type="button" class="chip ${s.hiRisk.includes(h) ? 'on' : ''}" data-hr="${esc(h)}">${esc(h)}</button>`).join('')}</div>
+      ${s.hiRisk.length ? `<b style="display:block;margin-top:12px;font-size:14px">Permits and controls in place for it?</b><span class="hint">Permit to work, power isolated and locked off, harness tied off, fire watch, gas test, barriers…</span>${yn('permits')}
+        ${s.permits === 'no' ? `<input id="permitNote" placeholder="What was missing?" value="${esc(s.permitNote)}" style="margin-top:6px">` : ''}` : ''}</div>
+    <div class="q"><b>4. Ladders, scaffolds and platforms checked before use?</b>${yn('access', YNA)}</div>
+    <div class="q"><b>5. Power tools, grinders and extension leads in good condition?</b><span class="hint">Guards on, no damaged cables, leads off the floor in wet areas</span>${yn('tools', YNA)}</div>
+    <div class="q"><b>6. Fire extinguisher nearby during hot work?</b>${yn('fire', YNA)}</div>
+    <div class="q"><b>7. First aid kit available on site?</b>${yn('firstAidKit')}</div>
+    <div class="q"><b>8. Any injury, accident or near miss?</b>${yn('incident', [['no', 'None', 'y'], ['yes', 'Yes', 'n']])}
+      ${s.incident === 'yes' ? `<select id="incidentType" style="margin-top:6px"><option value="">What kind?</option>${INCIDENT_TYPES.map(x => `<option ${s.incidentType === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
+        <textarea id="incidentNote" placeholder="What happened, who was involved, first aid given, what was done to stop it happening again" style="margin-top:6px;min-height:80px">${esc(s.incidentNote)}</textarea>` : ''}</div>
+    <div class="q"><b>9. Work area left clean and safe at the end of the day?</b><span class="hint">Waste cleared, floor openings covered, power off, tools locked away</span>${yn('housekeeping')}</div>
+    <div class="q"><b>Unsafe conditions or unsafe acts seen</b><textarea id="hazards" placeholder="e.g. open floor edge, loose scaffold board, someone at height without a harness — and what was done about it. Leave empty if none." style="margin-top:6px;min-height:64px">${esc(s.hazards)}</textarea>
+      <div class="thumbs" data-ph="-2"></div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" data-a="cam" data-i="-2">📷 Photo</button><button class="btn sm" data-a="gal" data-i="-2">🖼 Gallery</button></div></div>
   </section>
-  <section class="card"><h2>Problems / delays</h2><p class="hint" style="margin-top:-4px">Things ${BOSS} must deal with: leaks, damage, missing drawings, client changes, waiting for others…</p>
+  <section class="card"><h2>Problems / delays</h2><p class="hint" style="margin-top:-4px">Anything that needs attention: leaks, damage, missing drawings, client changes, waiting on others…</p>
     <div id="issues">${d.issues.map((x, i) => issueHtml(x, i)).join('')}</div>
     <button class="btn ghost" data-a="addissue" style="margin-top:10px">+ Add a problem</button></section>
   <section class="card"><h2>Deliveries & visitors</h2><textarea id="deliveries" placeholder="e.g. 20 lengths of copper pipe delivered; consultant visited 2 pm" style="min-height:64px">${esc(d.deliveries)}</textarea></section>
-  <section class="card"><h2>Anything else</h2><textarea id="notes" placeholder="Anything else ${BOSS} should know" style="min-height:64px">${esc(d.notes)}</textarea></section>
+  <section class="card"><h2>Anything else</h2><textarea id="notes" placeholder="Anything else to report" style="min-height:64px">${esc(d.notes)}</textarea></section>
   <p class="muted" style="text-align:center">Your report is kept on this phone until it is sent, so nothing is lost if the signal drops.</p>`;
   drawPhotos();
   document.querySelector('.dock')?.remove();
-  const dock = document.createElement('div'); dock.className = 'dock'; dock.innerHTML = `<span class="muted" id="st"></span><button class="btn pri" id="send">Send to ${BOSS}</button>`; document.body.append(dock);
+  const dock = document.createElement('div'); dock.className = 'dock'; dock.innerHTML = `<span class="muted" id="st"></span><button class="btn pri" id="send">Send report</button>`; document.body.append(dock);
   main.oninput = e => { readForm(); if (e.target.id === 'pid') $('#pname').style.display = e.target.value === 'other' || !e.target.value ? '' : 'none'; if (e.target.dataset.crew != null) $('#crewn').textContent = draft.crew.filter(x => x.trim()).length; };
   main.onchange = main.oninput;
   main.onclick = e => {
+    const hr = e.target.closest('[data-hr]'); if (hr) { readForm(); const l = draft.safety.hiRisk, h = hr.dataset.hr; draft.safety.hiRisk = l.includes(h) ? l.filter(x => x !== h) : [...l, h]; if (!draft.safety.hiRisk.length) draft.safety.permits = ''; return redraw(); }
     const y = e.target.closest('[data-yn] button'); if (y) { readForm(); const k = y.closest('[data-yn]').dataset.yn; draft.safety[k] = draft.safety[k] === y.dataset.v ? '' : y.dataset.v; return redraw(); }
     const b = e.target.closest('[data-a]'); if (!b) return; const a = b.dataset.a, i = +b.dataset.i;
     if (a === 'addcrew') { readForm(); draft.crew.push(''); redraw(); main.querySelector(`[data-crew="${draft.crew.length - 1}"]`)?.focus(); }
@@ -140,7 +160,7 @@ function readForm() {
   d.crew = [...document.querySelectorAll('[data-crew]')].map(i => i.value); d.done = v('done'); d.outstanding = v('outstanding'); d.deliveries = v('deliveries'); d.notes = v('notes');
   d.materials = [...document.querySelectorAll('[data-m]')].map(el => ({ item: el.querySelector('[data-k=item]').value, qty: el.querySelector('[data-k=qty]').value, unit: el.querySelector('[data-k=unit]').value }));
   d.issues = [...document.querySelectorAll('.issue')].map(el => ({ text: el.querySelector('[data-k=text]').value, comment: el.querySelector('[data-k=comment]').value }));
-  for (const k of ['ppeNote', 'toolboxTopic', 'incidentNote', 'hazards']) if ($('#' + k)) d.safety[k] = v(k);
+  for (const k of ['ppeNote', 'toolboxTopic', 'permitNote', 'incidentType', 'incidentNote', 'hazards']) if ($('#' + k)) d.safety[k] = v(k);
   lsSet('draft2', d);
 }
 function redraw() { const y = scrollY; draw(); scrollTo(0, y); }
@@ -165,6 +185,15 @@ function shrink(file) {
     }; img.onerror = rej; img.src = URL.createObjectURL(file);
   });
 }
+// Safety answers as plain lines (WhatsApp fallback). Same wording the app uses.
+function safetyLines(s) {
+  const a = (k, yes = 'Yes', no = 'NO') => s[k] === 'yes' ? yes : s[k] === 'no' ? no : s[k] === 'na' ? 'N/A' : '-';
+  return [`PPE worn by everyone: ${a('ppe')}${s.ppe === 'no' && s.ppeNote ? ' — ' + s.ppeNote : ''}`, `Toolbox talk: ${a('toolbox')}${s.toolbox === 'yes' && s.toolboxTopic ? ' — ' + s.toolboxTopic : ''}`,
+    `High-risk work: ${s.hiRisk.length ? s.hiRisk.join(', ') : 'none'}`, ...(s.hiRisk.length ? [`Permits / controls in place: ${a('permits')}${s.permits === 'no' && s.permitNote ? ' — ' + s.permitNote : ''}`] : []),
+    `Ladders / scaffolds checked: ${a('access')}`, `Tools & leads in good condition: ${a('tools')}`, `Extinguisher at hot work: ${a('fire')}`, `First aid kit on site: ${a('firstAidKit')}`,
+    `Injury / near miss: ${s.incident === 'yes' ? [s.incidentType, s.incidentNote].filter(Boolean).join(' — ') : s.incident === 'no' ? 'None' : '-'}`, `Area left clean & safe: ${a('housekeeping')}`,
+    ...(s.hazards ? [`Unsafe conditions / acts: ${s.hazards}`] : [])];
+}
 // The same report as WhatsApp text — used if the internet send fails
 function asText(b) {
   const L = (t, xs) => xs.length ? [``, t, ...xs.map(x => `  - ${x}`)] : [];
@@ -172,8 +201,7 @@ function asText(b) {
   return [`*REPORT FROM ${(b.projectName || '').toUpperCase()}*`, `Date: ${b.date}`, `Time in: ${b.arrive || '-'}   Time out: ${b.leave || '-'}`, `Weather: ${b.weather}${b.weatherNote ? ' — ' + b.weatherNote : ''}`,
     ...L(`*TECHNICIANS ON SITE (${b.crew.length})*`, b.crew), ...L('*WORK CARRIED OUT*', b.done), ...L('*OUTSTANDING WORK*', b.outstanding),
     ...(b.materials.length ? ['', '*MATERIALS NEEDED*', ...b.materials.map((m, i) => `  ${i + 1}. ${m.item} = ${[m.qty, m.unit].filter(Boolean).join(' ')}`)] : []),
-    '', '*SAFETY*', `  PPE worn by all: ${s.ppe === 'yes' ? 'Yes' : s.ppe === 'no' ? 'No — ' + s.ppeNote : '-'}`, `  Toolbox talk: ${s.toolbox === 'yes' ? 'Yes — ' + s.toolboxTopic : s.toolbox === 'no' ? 'No' : '-'}`,
-    `  Incidents / near misses: ${s.incident === 'yes' ? s.incidentNote : s.incident === 'no' ? 'None' : '-'}`, ...(s.hazards ? [`  Unsafe conditions: ${s.hazards}`] : []),
+    '', '*SAFETY*', ...safetyLines(s).map(x => '  ' + x),
     ...L('*PROBLEMS / DELAYS*', b.issues.map(x => x.text + (x.comment ? ` (${x.comment})` : ''))), ...(b.deliveries ? ['', '*DELIVERIES & VISITORS*', b.deliveries] : []), ...(b.notes ? ['', '*OTHER*', b.notes] : []),
     '', `— ${me.name}`].join('\n');
 }
@@ -182,15 +210,18 @@ async function send() {
   if (!d.projectName && !d.projectId) return alert('Choose the site first.');
   const crew = d.crew.map(x => x.trim()).filter(Boolean), done = lines(d.done), outstanding = lines(d.outstanding);
   if (!done.length && !outstanding.length && !d.issues.some(x => x.text.trim()) && !photos.length) return alert('Write the work carried out (or add a photo) before sending.');
-  const missing = [!crew.length && 'technicians on site', !s.ppe && 'PPE', !s.toolbox && 'toolbox talk', !s.incident && 'injuries / near misses'].filter(Boolean);
+  const unanswered = safetyQs().filter(k => !s[k]).length;
+  if (s.incident === 'yes' && !s.incidentNote.trim()) return alert('Describe the injury / near miss before sending — what happened and who was involved.');
+  const missing = [!crew.length && 'technicians on site', unanswered && `${unanswered} safety question${unanswered > 1 ? 's' : ''}`].filter(Boolean);
   if (missing.length && !confirm(`You haven't filled in: ${missing.join(', ')}.\n\nSend anyway?`)) return;
   const body = { v: 2, projectId: d.projectId === 'other' ? '' : d.projectId, projectName: d.projectName, date: d.date, arrive: d.arrive, leave: d.leave, weather: d.weather, weatherNote: d.weatherNote.trim(),
     crew, done, outstanding, materials: d.materials.filter(m => m.item.trim()).map(m => ({ item: m.item.trim(), qty: m.qty.trim(), unit: m.unit.trim() })),
-    safety: { ...s, ppeNote: s.ppe === 'no' ? s.ppeNote.trim() : '', toolboxTopic: s.toolbox === 'yes' ? s.toolboxTopic.trim() : '', incidentNote: s.incident === 'yes' ? s.incidentNote.trim() : '', hazards: s.hazards.trim() },
+    safety: { ...s, ppeNote: s.ppe === 'no' ? s.ppeNote.trim() : '', toolboxTopic: s.toolbox === 'yes' ? s.toolboxTopic.trim() : '', permits: s.hiRisk.length ? s.permits : '', permitNote: s.hiRisk.length && s.permits === 'no' ? s.permitNote.trim() : '',
+      incidentType: s.incident === 'yes' ? s.incidentType : '', incidentNote: s.incident === 'yes' ? s.incidentNote.trim() : '', hazards: s.hazards.trim() },
     issues: d.issues.map((x, i) => ({ ...x, i })).filter(x => x.text.trim()).map(x => ({ text: x.text.trim(), comment: x.comment.trim(), i: x.i })),
     deliveries: d.deliveries.trim(), notes: d.notes.trim() };
   const idx = Object.fromEntries(body.issues.map((x, k) => [x.i, k])); body.issues.forEach(x => delete x.i);
-  body.photos = photos.map(p => ({ data: p.data, type: p.type, caption: p.caption, issue: p.issue === -1 ? null : (idx[p.issue] ?? null) }));
+  body.photos = photos.map(p => ({ data: p.data, type: p.type, caption: p.caption, issue: p.issue >= 0 ? (idx[p.issue] ?? null) : null, group: p.issue === -2 ? 'safety' : '' }));
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Sending…'; st.textContent = photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'}` : '';
   try {
     const r = await fetch(`${RELAY}/send`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-code': code }, body: JSON.stringify(body) });
@@ -198,9 +229,9 @@ async function send() {
     if (!r.ok) throw new Error(j.error || 'The server refused the report');
     lsSet('lastSent', Date.now()); lsSet('lastCrew', crew.length ? crew : null); if (d.projectId) lsSet('lastProject', d.projectId);
     localStorage.removeItem('draft2'); photos = []; draft = blank(); draw(); window.scrollTo(0, 0);
-    main.insertAdjacentHTML('afterbegin', `<div class="banner good"><b>Sent ✓</b> ${BOSS} has your report. Thank you.</div>`);
+    main.insertAdjacentHTML('afterbegin', `<div class="banner good"><b>Report sent ✓</b> Thank you.</div>`);
   } catch (e) {
-    btn.disabled = false; btn.textContent = `Send to ${BOSS}`; st.innerHTML = '<span class="bad">Not sent</span>';
+    btn.disabled = false; btn.textContent = 'Send report'; st.innerHTML = '<span class="bad">Not sent</span>';
     if (confirm(`Could not send: ${e.message}.\n\nYour report is still here. Send it as a WhatsApp message instead (without photos)?`)) location.href = `https://wa.me/?text=${encodeURIComponent(asText(body))}`;
   }
 }
