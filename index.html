@@ -65,17 +65,36 @@ let me = ls('me', null), photos = [], draft = ls('draft2', null) || blank();
 draft.safety = { ...blankSafety(), ...draft.safety }; // drafts saved before the safety section grew
 const main = $('#main');
 
-if (!code) { main.innerHTML = `<div class="card center"><h2>You need your personal link</h2><p class="muted">Ask your supervisor for your report link and open it from WhatsApp. It remembers you after that.</p></div>`; $('#who').textContent = 'No link'; }
-else { lsSet('code', code); start(); }
+if (!code) askCode(); else { lsSet('code', code); start(); }
+
+// Everyone uses the same link; each person types their own code once, and the page remembers it.
+function askCode(msg = '') {
+  $('#who').textContent = 'Sign in with your code';
+  main.innerHTML = `<div class="card center" style="padding:28px 16px"><h2>Enter your code</h2><p class="muted">Your supervisor gave you a 6-character code. You only type it once on this phone.</p>
+    <form id="cf" style="margin-top:14px"><input id="cin" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="e.g. 4PBUZJ" style="text-align:center;font-size:22px;letter-spacing:.2em;text-transform:uppercase">
+    <p class="bad" id="cerr" style="min-height:20px;margin:8px 0 0;font-size:14px">${esc(msg)}</p><button class="btn pri" style="width:100%;margin-top:6px" id="cgo">Continue</button></form></div>`;
+  setTimeout(() => $('#cin').focus(), 100);
+  $('#cf').onsubmit = async e => {
+    e.preventDefault(); const c = $('#cin').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 4) return ($('#cerr').textContent = 'Type the whole code');
+    $('#cgo').disabled = true; $('#cgo').innerHTML = '<span class="spin"></span>Checking…';
+    try {
+      const r = await fetch(`${RELAY}/me?code=${encodeURIComponent(c)}`, { signal: AbortSignal.timeout(12000) });
+      if (r.status === 403) { $('#cerr').textContent = 'That code is not right — check it and try again'; $('#cgo').disabled = false; $('#cgo').textContent = 'Continue'; return; }
+      if (!r.ok) throw new Error();
+      lsSet('code', c); lsSet('me', await r.json()); location.replace(location.pathname); // clean address, code remembered
+    } catch { $('#cerr').textContent = 'No connection — turn on data and try again'; $('#cgo').disabled = false; $('#cgo').textContent = 'Continue'; }
+  };
+}
+function signOut() { if (!confirm('Use a different code on this phone? Any report not yet sent will be lost.')) return; ['code', 'me', 'draft2', 'lastCrew', 'lastProject', 'lastSent'].forEach(k => localStorage.removeItem(k)); location.replace(location.pathname); }
 
 async function start() {
   try {
     const r = await fetch(`${RELAY}/me?code=${encodeURIComponent(code)}`, { signal: AbortSignal.timeout(12000) });
-    if (r.status === 403) { localStorage.removeItem('code'); main.innerHTML = `<div class="card center"><h2>This link is no longer valid</h2><p class="muted">Ask your supervisor for a new one.</p></div>`; $('#who').textContent = ''; return; }
+    if (r.status === 403) { ['code', 'me'].forEach(k => localStorage.removeItem(k)); return askCode('Your code is no longer valid — ask your supervisor for a new one'); }
     if (r.ok) { me = await r.json(); lsSet('me', me); }
   } catch { /* offline: use what we remembered */ }
   if (!me) { main.innerHTML = '<div class="card center"><h2>No connection</h2><p class="muted">Turn on data once so the page can check your link, then try again.</p><button class="btn pri" onclick="location.reload()">Try again</button></div>'; return; }
-  $('#who').textContent = `${me.name} · daily report`;
+  $('#who').innerHTML = `${esc(me.name)} · daily report · <a href="#" id="notme" style="color:#fdba74">Not you?</a>`; $('#notme').onclick = e => { e.preventDefault(); signOut(); };
   draw();
 }
 // answer buttons: [value, label, 'y' = good (green) | 'n' = needs attention (red) | 'm' = not applicable (grey)]
